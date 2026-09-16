@@ -1,0 +1,18 @@
+# Model architecture: P2 stride-4 tiny-object detector
+model:
+  num_classes: 3            # drone, bird, clutter
+  width: 0.50               # channel width multiplier (0.25/0.50/1.00)
+  depth: 0.33               # bottleneck depth multiplier
+  strides: [4, 8, 16]       # detection pyramid; P2 (stride 4) is the point
+  in_chans: 3
+
+input_size: 640             # square; multiples of 32
+
+train:
+  optimizer: adamw
+  lr: 0.001
+  weight_decay: 0.0005
+  batch_size: 8
+  epochs: 100
+  warmup_epochs: 3
+  amp: false                # CPU dev box: keep off

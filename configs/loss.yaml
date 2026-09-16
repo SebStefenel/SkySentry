@@ -1,0 +1,18 @@
+# Composite detection loss (focal cls + objectness BCE + NWD/CIoU box)
+loss:
+  weight_box: 5.0
+  weight_cls: 1.0
+  weight_obj: 1.0
+
+  # NWD: scale-normalizing constant C in pixels. Calibrate to the dataset's
+  # mean object size (paper uses ~12.8 px for VisDrone).
+  nwd_constant: 12.8
+  nwd_alpha: 0.5            # 1.0 = pure NWD, 0.0 = pure CIoU
+
+  # Assignment: FCOS-style scale partitioning on the longer GT side (px).
+  strides: [4, 8, 16]
+  scale_ranges: [[0, 64], [64, 128], [128, 100000]]
+  center_sample_radius: 1.5
+
+  focal_alpha: 0.25
+  focal_gamma: 2.0

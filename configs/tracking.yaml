@@ -1,0 +1,14 @@
+# Tracking: SORT-style Kalman tracker tuned for tiny aerial targets
+tracking:
+  # NWD association tolerates the large jitter-to-size ratio of tiny boxes
+  # (a 3-px jump kills IoU on a 6-px bird; NWD barely notices).
+  assoc_metric: nwd          # iou | nwd
+  assoc_threshold: 0.3
+  nwd_constant: 12.8         # same scale constant as the loss
+
+  max_age: 15                # frames to coast through occlusion
+  min_hits: 3                # detections before a track is confirmed
+
+  # Inference operating point feeding the tracker
+  detector_conf: 0.25
+  detector_iou_nms: 0.45

@@ -1,0 +1,23 @@
+# Data: synthetic (sim) now, real aerial (target) in Phase 2
+data:
+  root: data/raw/synthetic
+  classes: [drone, bird, clutter]
+  image_size: 640
+
+  # Sim-to-real: Phase-1 trains on synthetic only; Phase 2 adds real
+  # VisDrone/Drone-vs-Bird splits for the domain-gap evaluation.
+  real_root: null           # e.g. data/raw/visdrone
+
+  augmentation:
+    # Keep geometric transforms MILD: tiny targets are destroyed by aggressive
+    # warps, and a 1-px jitter is a large fraction of a 6-px box.
+    horizontal_flip: 0.5
+    vertical_flip: 0.0
+    rotate_limit: 5
+    scale_limit: 0.1
+    shift_limit: 0.05
+    color_jitter: 0.2
+    motion_blur_prob: 0.1
+    # Sim-to-real stylization hooks (Phase 2): fog/haze, gamma shifts,
+    # compression artifacts to close the synthetic→real gap.
+    haze_prob: 0.0
