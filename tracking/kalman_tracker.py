@@ -89,26 +89,35 @@ class Track:
 
 
 class KalmanBoxTracker:
-    """Kalman filter around one detected object (SORT-style)."""
+    """Kalman filter around one detected object.
+
+    State: ``[x, y, vx, vy, w, h]`` — center position with constant-velocity
+    motion and directly-tracked size (no area/aspect parameterization: for
+    tiny boxes the area/aspect singularity hurts more than the extra
+    flexibility helps, and w/h can be clamped positive on output).
+    """
 
     _count = 0
 
     def __init__(self, box_xyxy: np.ndarray, score: float, class_id: int) -> None:
         box_xyxy = np.asarray(box_xyxy, dtype=np.float64).reshape(4)  # accept (4,) or (1, 4)
-        # State: [cx, cy, s(area), r(aspect), vcx, vcy, vs, 0]
-        self.kf = KalmanFilter(dim_x=8, dim_z=4)
-        self.kf.F = np.eye(8)
-        self.kf.F[0, 4] = 1.0   # cx += vcx
-        self.kf.F[1, 5] = 1.0   # cy += vcy
-        self.kf.F[2, 6] = 1.0   # area += vs (aspect constant)
-        self.kf.H = np.zeros((4, 8))
-        self.kf.H[:, :4] = np.eye(4)                    # measure (cx, cy, s, r)
-        self.kf.R[2:, 2:] *= 10.0                       # area/aspect measured noisily
-        self.kf.P[4:, 4:] *= 1000.0                     # high initial velocity uncertainty
+        self.kf = KalmanFilter(dim_x=6, dim_z=4)
+        # x' = x + vx; y' = y + vy; velocities and size persist.
+        self.kf.F = np.eye(6)
+        self.kf.F[0, 2] = 1.0   # x += vx
+        self.kf.F[1, 3] = 1.0   # y += vy
+        self.kf.H = np.zeros((4, 6))
+        self.kf.H[0, 0] = 1.0   # measure x
+        self.kf.H[1, 1] = 1.0   # measure y
+        self.kf.H[2, 4] = 1.0   # measure w
+        self.kf.H[3, 5] = 1.0   # measure h
+        self.kf.R[2:, 2:] *= 10.0            # size measured noisier than position
+        self.kf.P[2:4, 2:4] *= 1000.0        # high initial velocity uncertainty
         self.kf.P *= 10.0
-        self.kf.Q[-1, -1] *= 0.01
-        self.kf.Q[4:, 4:] *= 0.01
-        self.kf.x[:4] = self._bbox_to_z(box_xyxy).reshape(4, 1)
+        self.kf.Q[2:4, 2:4] *= 0.01          # velocity noise
+        z = self._bbox_to_z(box_xyxy)
+        self.kf.x[0, 0], self.kf.x[1, 0] = z[0], z[1]   # center
+        self.kf.x[4, 0], self.kf.x[5, 0] = z[2], z[3]   # size; velocities stay 0
 
         KalmanBoxTracker._count += 1
         self.id = KalmanBoxTracker._count
@@ -123,21 +132,19 @@ class KalmanBoxTracker:
 
     @staticmethod
     def _bbox_to_z(box_xyxy: np.ndarray) -> np.ndarray:
-        """xyxy box → measurement (cx, cy, area, aspect)."""
+        """xyxy box → measurement (cx, cy, w, h)."""
         w = max(box_xyxy[2] - box_xyxy[0], 1e-3)
         h = max(box_xyxy[3] - box_xyxy[1], 1e-3)
         cx = box_xyxy[0] + w / 2.0
         cy = box_xyxy[1] + h / 2.0
-        return np.array([cx, cy, w * h, w / h])
+        return np.array([cx, cy, w, h])
 
     @staticmethod
     def _x_to_bbox(x: np.ndarray) -> tuple[float, float, float, float]:
-        """State mean → xyxy box (guards degenerate area/aspect)."""
-        cx, cy, s, r = float(x[0, 0]), float(x[1, 0]), float(x[2, 0]), float(x[3, 0])
-        s = max(s, 1e-3)
-        r = max(r, 1e-3)
-        w = np.sqrt(s * r)
-        h = s / w
+        """State mean → xyxy box (guards degenerate sizes)."""
+        cx, cy = float(x[0, 0]), float(x[1, 0])
+        w = max(float(x[4, 0]), 1e-3)
+        h = max(float(x[5, 0]), 1e-3)
         return cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0
 
     def predict(self) -> tuple[float, float, float, float]:

@@ -1,0 +1,7 @@
+metric,value
+true_tracks,652
+false_tracks_before,838
+precision_before,0.4376
+true_tracks_after,573
+false_tracks_after,505
+precision_after,0.5315

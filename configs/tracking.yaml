@@ -9,6 +9,15 @@ tracking:
   max_age: 15                # frames to coast through occlusion
   min_hits: 3                # detections before a track is confirmed
 
+  # False-positive rejection: rolling-window motion erraticness
+  # (tracking/track_filter.py; measured in results/tracking/fp_precision.csv)
+  motion_filter:
+    window: 7                # recent points per track
+    min_points: 4            # before a verdict is issued
+    accel_thresh: 6.0        # median |Δvelocity| px/frame² above which erratic
+    flip_thresh: 0.5         # direction-flip rate above which erratic
+    min_speed_for_flips: 1.0 # below this speed, flips are noise
+
   # Inference operating point feeding the tracker
   detector_conf: 0.25
   detector_iou_nms: 0.45

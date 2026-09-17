@@ -1,0 +1,11 @@
+{
+  "mode": "gt-sim",
+  "assoc": "iou",
+  "frames": 40,
+  "avg_latency_ms": 0.84,
+  "fps": 1192.1,
+  "motion_filter": {
+    "kept": 4,
+    "rejected": 0
+  }
+}

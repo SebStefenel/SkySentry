@@ -422,7 +422,7 @@ def _prepare_synthetic(out_dir: Path, num_train: int, num_val: int, seed: int) -
     (dataset_dir / "classes.txt").write_text("drone\nbird\nclutter\n", encoding="utf-8")
 
     def count_split(split: str) -> dict:
-        labels = sorted((dataset_dir / "labels" / split).glob("*.txt"))
+        labels = sorted((dataset_dir / split / "labels").glob("*.txt"))
         instances = sum(len(l.read_text(encoding="utf-8").splitlines()) for l in labels)
         return {"images": len(labels), "instances": instances}
 

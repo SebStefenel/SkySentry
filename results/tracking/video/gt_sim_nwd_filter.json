@@ -1,0 +1,11 @@
+{
+  "mode": "gt-sim",
+  "assoc": "nwd",
+  "frames": 40,
+  "avg_latency_ms": 2.45,
+  "fps": 407.9,
+  "motion_filter": {
+    "kept": 4,
+    "rejected": 0
+  }
+}
