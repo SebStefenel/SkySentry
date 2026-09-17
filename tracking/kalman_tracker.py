@@ -94,6 +94,7 @@ class KalmanBoxTracker:
     _count = 0
 
     def __init__(self, box_xyxy: np.ndarray, score: float, class_id: int) -> None:
+        box_xyxy = np.asarray(box_xyxy, dtype=np.float64).reshape(4)  # accept (4,) or (1, 4)
         # State: [cx, cy, s(area), r(aspect), vcx, vcy, vs, 0]
         self.kf = KalmanFilter(dim_x=8, dim_z=4)
         self.kf.F = np.eye(8)

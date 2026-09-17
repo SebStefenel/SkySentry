@@ -130,6 +130,29 @@ def test_empty_input_keeps_graph() -> None:
     loss.backward() if loss.requires_grad else None
 
 
+def test_zero_area_boxes_are_finite() -> None:
+    """Degenerate point-boxes (w = h = 0) must not NaN out."""
+    points = torch.tensor([[5.0, 5.0, 5.0, 5.0], [40.0, 40.0, 40.0, 40.0]])
+    sim = nwd_similarity(points, points, constant=12.8)
+    assert torch.isfinite(sim).all()
+    assert torch.allclose(sim.diagonal(), torch.ones(2), atol=TOL)
+    loss_fn = NWDLoss(alpha=1.0)
+    loss = loss_fn(points.clone(), points)
+    assert torch.isfinite(loss) and loss.item() < 1e-6
+
+
+def test_negative_size_boxes_clamp_to_zero_variance() -> None:
+    """x2 < x1 (negative width) is clamped to zero variance: loss and grads
+    stay finite, and the effective std is never negative."""
+    pred = torch.tensor([[10.0, 10.0, 0.0, 12.0]], requires_grad=True)  # w = -10
+    target = torch.tensor([[10.0, 10.0, 20.0, 20.0]])
+    loss = NWDLoss(alpha=1.0)(pred, target)
+    assert torch.isfinite(loss) and loss.item() > 0.0
+    loss.backward()
+    assert pred.grad is not None and torch.isfinite(pred.grad).all()
+    assert pred.grad.abs().sum() > 0.0
+
+
 def test_nwd_matches_expected_exp_form() -> None:
     """Check the exp(-sqrt(W2^2)/C) form against a direct computation."""
     pred, target = _box(0.0, 0.0, 10.0, 10.0), _box(3.0, 4.0, 6.0, 8.0)

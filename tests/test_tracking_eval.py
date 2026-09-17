@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data.synthetic_composer import SyntheticAerialGenerator, SyntheticConfig, generate_clip  # noqa: E402
 from evaluation.metrics import DetectionEvaluator  # noqa: E402
-from tracking.kalman_tracker import SORTTracker, SORTTrackerConfig  # noqa: E402
+from tracking.kalman_tracker import KalmanBoxTracker, SORTTracker, SORTTrackerConfig  # noqa: E402
 
 
 def test_tracker_identity_survives_occlusion() -> None:
@@ -43,6 +43,37 @@ def test_two_targets_two_ids() -> None:
         ])
         tracker.update(dets, frame_idx=frame)
     assert len({t.id for t in tracker.tracks}) == 2
+
+
+def test_tracker_handles_empty_detection_lists() -> None:
+    """Empty input must be a no-op — both on a fresh tracker and repeated."""
+    tracker = SORTTracker(SORTTrackerConfig(min_hits=1))
+    assert tracker.update(np.zeros((0, 6)), frame_idx=0) == []
+    assert tracker.update(np.zeros((0, 6)), frame_idx=1) == []
+    # And an empty frame between detections must not crash either.
+    det = np.array([[0.0, 0.0, 10.0, 10.0, 0.9, 0.0]])
+    tracker.update(det, frame_idx=2)
+    tracker.update(np.zeros((0, 6)), frame_idx=3)
+    assert len(tracker.tracks) == 1
+
+
+def test_kalman_survives_zero_area_box() -> None:
+    """A degenerate (zero-area) detection must not poison the filter state."""
+    tracker = KalmanBoxTracker(np.array([50.0, 50.0, 50.0, 50.0]), 0.9, 0)
+    for f in range(5):
+        box = tracker.predict()
+        assert np.all(np.isfinite(box)), f"non-finite prediction at frame {f}"
+    tracker.update(np.array([50.0, 50.0, 50.0, 50.0]), 0.9, 0, frame_idx=5)
+    assert np.all(np.isfinite(tracker.box))
+
+
+def test_kalman_stays_finite_over_long_coast() -> None:
+    """60 frames of pure prediction (no updates) must stay finite — guards
+    against covariance collapse/divergence in the linear CV model."""
+    tracker = KalmanBoxTracker(np.array([100.0, 100.0, 110.0, 110.0]), 0.8, 0)
+    for f in range(60):
+        box = tracker.predict()
+        assert np.all(np.isfinite(box)), f"diverged at frame {f}: {box}"
 
 
 def test_evaluator_perfect_predictions_score_one() -> None:

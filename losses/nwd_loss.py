@@ -114,8 +114,11 @@ def wasserstein_sq_distance(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch
     """
     b1 = xyxy_to_cxcywh(boxes1)                 # (N, 4)
     b2 = xyxy_to_cxcywh(boxes2)                 # (M, 4)
-    mu1, half_wh1 = b1[:, :2], b1[:, 2:] * 0.5  # std devs
-    mu2, half_wh2 = b2[:, :2], b2[:, 2:] * 0.5
+    # Degenerate/negative sizes (x2 < x1) clamp to zero variance: a Gaussian
+    # std is non-negative, and the clamp also zeroes the gradient for
+    # negative-size predictions instead of pushing them further negative.
+    mu1, half_wh1 = b1[:, :2], b1[:, 2:].clamp(min=0) * 0.5
+    mu2, half_wh2 = b2[:, :2], b2[:, 2:].clamp(min=0) * 0.5
 
     # ||mu1 - mu2||^2  -> (N, M)
     center_term = ((mu1[:, None, :] - mu2[None, :, :]) ** 2).sum(dim=-1)
