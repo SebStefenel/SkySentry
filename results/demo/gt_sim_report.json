@@ -1,0 +1,11 @@
+{
+  "mode": "gt-sim",
+  "frames": 40,
+  "size_px": 320,
+  "avg_latency_ms": 1.32,
+  "fps": 757.6,
+  "motion_filter": {
+    "kept": 4,
+    "rejected": 0
+  }
+}
