@@ -20,3 +20,9 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Real-dataset imagery is licensed academic-only — never commit derived frames
+results/sample_grid_visdrone.png
+data/raw/visdrone/
+data/raw/visdrone_extracted/
+data/raw/VisDrone2019-DET-val.zip
