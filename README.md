@@ -1,6 +1,19 @@
 # SkySentry
 High-resolution small-object detection and spatiotemporal trajectory tracking pipeline in PyTorch, featuring a P2 stride-4 feature head, Normalized Wasserstein Distance (NWD) loss, and constant-velocity Kalman state estimation.
 
+## What this project does (in plain terms)
+
+Modern cameras can film the sky from another drone — but the interesting things in that footage, like other drones or birds, are *tiny*: often just a handful of pixels. To a computer, a drone 30 pixels wide looks almost identical to a speck of sensor noise, and standard object-detection systems routinely miss such targets or fail to say how wrong their guesses are.
+
+SkySentry tackles this in two steps:
+
+1. **Spotting tiny objects.** A custom neural network (built by modifying a standard YOLO-style detector) inspects the image at four times higher internal resolution than usual, so a small target still occupies enough "cells" of the network's feature map to be recognized. Training uses a new scoring rule based on the Wasserstein ("earth-mover") distance that measures exactly how far off a guess is — even when the predicted box and the true box don't overlap at all. The usual scoring rule (IoU) gives *zero* feedback in that case, which is fatal for targets this small.
+2. **Following them over time.** A Kalman filter — the same estimation idea used in radar and guidance systems — keeps each detected object across video frames: it predicts where each object is heading, keeps the same ID attached to the same object even when it disappears behind a building for several frames, and flags jittery "tracks" that are probably noise rather than real objects.
+
+Because real drone footage is hard to collect and label, the network trains on procedurally generated fake aerial scenes (a flight simulator for the detector), then gets tested on real drone footage to measure exactly how much accuracy is lost in the move from simulator to reality — and how much of that loss smarter training augmentation can win back.
+
+Everything here is measured, not aspirational: every number in the tables below comes from a script you can re-run (see [Reproduction](#reproduction)).
+
 ![demo](results/demo/gt_sim.gif)
 
 ## Architecture
