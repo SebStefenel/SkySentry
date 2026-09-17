@@ -1,0 +1,26 @@
+# (d) (c) + domain augmentations: close the synthetic→real gap
+name: exp_d_p2_nwd_aug
+model:
+  num_classes: 3
+  width: 0.50
+  depth: 0.33
+  strides: [4, 8, 16]
+
+loss:
+  nwd_alpha: 0.5
+  nwd_constant: 12.8
+  weight_box: 5.0
+
+data:
+  root: data/raw/synthetic
+  augment: true             # flips, brightness/contrast, HSV, motion blur,
+                            # Gaussian noise, JPEG compression, fog (yolo_dataset.py)
+
+train:
+  img_size: 640
+  batch_size: 8
+  epochs: 60
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 0
+  early_stop_patience: 15

@@ -1,0 +1,25 @@
+# (a) Baseline: strides 8/16/32 (no P2), pure CIoU box loss
+name: exp_a_baseline
+model:
+  num_classes: 3
+  width: 0.50
+  depth: 0.33
+  strides: [8, 16, 32]      # no P2 head
+
+loss:
+  nwd_alpha: 0.0            # pure CIoU
+  nwd_constant: 12.8
+  weight_box: 5.0
+
+data:
+  root: data/raw/synthetic
+  augment: false
+
+train:
+  img_size: 640
+  batch_size: 8
+  epochs: 60
+  lr: 0.001
+  weight_decay: 0.0005
+  seed: 0
+  early_stop_patience: 15

@@ -155,11 +155,14 @@ class Backbone(nn.Module):
 
 
 class P2Neck(nn.Module):
-    """PAN neck that lifts the top-down path all the way to stride 4.
+    """PAN neck that builds only the pyramid levels a config detects on.
 
-    Top-down: C5 → up⊕C4 → P4 → up⊕C3 → P3 → up⊕C2 → **P2** (stride 4).
-    Bottom-up: P2 → down⊕P3 → N3 → down⊕P4 → N4 → down⊕P5 → N5.
-    Returns ``(N2, N3, N4, N5)`` at strides (4, 8, 16, 32).
+    Top-down (coarse→fine): C5 → up⊕C4 → t16 → up⊕C3 → t8 → up⊕C2 → t4.
+    Bottom-up (fine→coarse): from the finest top-down level back down,
+    ``n_s = C3(cat(down(prev), t_s))``. Levels absent from ``cfg.strides``
+    are not built (no dead parameters, one code path for the P2 ablation).
+
+    ``forward`` returns ``{stride: feature}`` for exactly ``cfg.strides``.
     """
 
     def __init__(self, cfg: DetectorConfig) -> None:
@@ -167,45 +170,61 @@ class P2Neck(nn.Module):
         ch = cfg.channels
         c = cfg.neck_channels
         n = max(round(1 * cfg.depth), 1)
-        self.use_p5 = 32 in cfg.strides   # stride-32 branch is dead weight otherwise
+        self.strides = tuple(cfg.strides)
+        self.min_stride = min(self.strides)
 
-        # Top-down laterals (project C5..C2 to neck width)
-        self.lat5 = ConvBnSiLU(ch[4], c, 1)
-        self.lat4 = ConvBnSiLU(ch[3], c, 1)
-        self.lat3 = ConvBnSiLU(ch[2], c, 1)
-        self.lat2 = ConvBnSiLU(ch[1], c, 1)
-        self.td4 = C3(2 * c, c, n, shortcut=False)
-        self.td3 = C3(2 * c, c, n, shortcut=False)
-        self.td2 = C3(2 * c, c, n, shortcut=False)
-
-        # Bottom-up
-        self.down3 = ConvBnSiLU(c, c, 3, 2)
-        self.n3 = C3(2 * c, c, n, shortcut=False)
-        self.down4 = ConvBnSiLU(c, c, 3, 2)
-        self.n4 = C3(2 * c, c, n, shortcut=False)
-        if self.use_p5:
-            self.down5 = ConvBnSiLU(c, c, 3, 2)
-            self.n5 = C3(2 * c, c, n, shortcut=False)
+        # Laterals: project every backbone level from the finest detected
+        # stride up to C5 to neck width (coarser ones never enter the neck).
+        self.lat = nn.ModuleDict({
+            str(s): ConvBnSiLU(c_back, c, 1)
+            for s, c_back in zip((4, 8, 16, 32), (ch[1], ch[2], ch[3], ch[4]))
+            if s >= self.min_stride or s == 32
+        })
+        # Top-down smoothing blocks for the levels the chain passes through
+        # (every level from 16 down to the finest detected stride).
+        self.td = nn.ModuleDict({
+            str(s): C3(2 * c, c, n, shortcut=False)
+            for s in (16, 8, 4) if s >= self.min_stride
+        })
+        # Bottom-up: one strided conv + fusion per detected stride coarser
+        # than the finest one; keys are the OUTPUT stride of the conv.
+        self.down = nn.ModuleDict({
+            str(s): ConvBnSiLU(c, c, 3, 2) for s in self.strides if s > self.min_stride
+        })
+        self.n = nn.ModuleDict({
+            str(s): C3(2 * c, c, n, shortcut=False) for s in self.strides if s > self.min_stride
+        })
 
     def forward(
         self, feats: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-    ) -> tuple[torch.Tensor, ...]:
+    ) -> dict[int, torch.Tensor]:
         c2, c3, c4, c5 = feats
+        backbone = {4: c2, 8: c3, 16: c4, 32: c5}
 
-        # Top-down, finest last: each lateral is concatenated with the
-        # 2x-upsampled level above it, then smoothed.
-        t5 = self.lat5(c5)
-        t4 = self.td4(torch.cat((self.lat4(c4), F.interpolate(t5, scale_factor=2, mode="nearest")), dim=1))
-        t3 = self.td3(torch.cat((self.lat3(c3), F.interpolate(t4, scale_factor=2, mode="nearest")), dim=1))
-        t2 = self.td2(torch.cat((self.lat2(c2), F.interpolate(t3, scale_factor=2, mode="nearest")), dim=1))
+        # Top-down: coarsest (32) first, then down to the finest detected stride.
+        top_down: dict[int, torch.Tensor] = {32: self.lat["32"](c5)}
+        for s in (16, 8, 4):
+            if s < self.min_stride:
+                break
+            lat = self.lat[str(s)](backbone[s])
+            up = F.interpolate(top_down[s * 2], scale_factor=2, mode="nearest")
+            if lat.shape[-2:] != up.shape[-2:]:     # odd input dims: match exactly
+                up = F.interpolate(up, size=lat.shape[-2:], mode="nearest")
+            top_down[s] = self.td[str(s)](torch.cat((lat, up), dim=1))
 
-        # Bottom-up
-        n3 = self.n3(torch.cat((self.down3(t2), t3), dim=1))
-        n4 = self.n4(torch.cat((self.down4(n3), t4), dim=1))
-        if self.use_p5:
-            n5 = self.n5(torch.cat((self.down5(n4), t5), dim=1))
-            return t2, n3, n4, n5
-        return t2, n3, n4
+        # Bottom-up: from the finest detected level back to the coarsest.
+        out: dict[int, torch.Tensor] = {}
+        finest = min(s for s in top_down if s in self.strides)
+        out[finest] = top_down[finest]
+        prev = top_down[finest]
+        for s in (8, 16, 32):
+            if s not in self.strides or s == finest:
+                continue
+            fused = self.n[str(s)](torch.cat((self.down[str(s)](prev), top_down[s]), dim=1))
+            out[s] = fused
+            prev = fused
+        return out
+        return out
 
 
 class DecoupledHead(nn.Module):
@@ -289,15 +308,10 @@ class TinyDetector(nn.Module):
 
     def forward(self, x: torch.Tensor) -> list[dict[str, torch.Tensor]]:
         input_hw = x.shape[-2:]
-        neck_feats = self.neck(self.backbone(x))
-        # Map neck outputs at strides (4, 8, 16[, 32]) onto the configured
-        # detection strides.
-        neck_strides = (4, 8, 16) + ((32,) if self.neck.use_p5 else ())
-        stride_to_feat = dict(zip(neck_strides, neck_feats))
+        neck_feats = self.neck(self.backbone(x))    # {stride: feature}
         outputs = []
         for stride, head in zip(self.strides, self.heads):
-            feat = stride_to_feat[stride]
-            out = head(feat)
+            out = head(neck_feats[stride])
             out["box"] = self._decode_boxes(out["box"], stride, input_hw)
             outputs.append(out)
         return outputs
@@ -354,6 +368,7 @@ class TinyDetector(nn.Module):
         max_n = max(max_n, 1)
         out = torch.full((len(all_boxes), max_n, 6), -1.0, device=outputs[0]["cls"].device)
         for i, per_img in enumerate(all_boxes):
-            for lvl in per_img:
-                out[i, : lvl.shape[0]] = lvl
+            if per_img:
+                merged = torch.cat(per_img, dim=0)           # concat across levels
+                out[i, : merged.shape[0]] = merged
         return out
